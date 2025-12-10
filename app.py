@@ -14,17 +14,14 @@ import joblib
 import pandas as pd
 import threading
 import mediapipe as mp
-# from sklearn.metrics import accuracy_score, classification_report
 from PIL import Image
 
-# -----------------------------------------------------------
-# تنظیمات صفحه
-# -----------------------------------------------------------
+
+# Page configuration
 st.set_page_config(page_title="سیستم تشخیص حرکت", layout="wide")
 
-# -----------------------------------------------------------
-# استایل CSS
-# -----------------------------------------------------------
+
+# CSS styling
 st.markdown("""
 <style>
 .stApp {
@@ -43,26 +40,23 @@ div[role="radiogroup"] {
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------
-# تصویر هدر
-# -----------------------------------------------------------
+
+# Header image
 header_image = Image.open("images/header.png")
 col1, col2, col3 = st.columns([0.75, 2, 0.75])
 with col2:
     st.image(header_image, use_container_width=True)
 
-# -----------------------------------------------------------
-# تنظیمات اولیه
-# -----------------------------------------------------------
+
+# Initial setup
 DATA_DIR = './data'
 os.makedirs(DATA_DIR, exist_ok=True)
 
 clf = joblib.load('ballet_rf_model1.pkl')
 scaler = joblib.load('ballet_rf_scaler1.pkl')
 
-# -----------------------------------------------------------
-# اطلاعات پوزیشن‌ها
-# -----------------------------------------------------------
+
+# Position information
 position_instructions = {
     0: {
         'name_fa': 'پوزیشن اول',
@@ -91,25 +85,24 @@ position_instructions = {
     }
 }
 
-# -----------------------------------------------------------
-# تابع نمایش اطلاعات پوزیشن
-# -----------------------------------------------------------
+
+# Function to display position information
 def display_position_info(prediction, confidence):
-    """نمایش اطلاعات پوزیشن با فارسی و RTL"""
+    """Display position information with Farsi and RTL formatting"""
     info = position_instructions.get(prediction, {
         'name_fa': 'نامشخص',
         'tips_fa': 'توضیحی موجود نیست.',
         'image': None
     })
     
-    # نمایش درصد اطمینان
+    # Display confidence percentage
     st.markdown(f"""
         <div style='direction: rtl; text-align: right;'>
             <p style='font-size: 1.2rem; font-weight: bold;'>درجه اطمینان: {confidence:.1f}%</p>
         </div>
     """, unsafe_allow_html=True)
     
-    # ستون‌ها برای تصویر و متن
+    # Columns for image and text
     col_img, col_text = st.columns([1, 2])
     
     with col_img:
@@ -128,9 +121,44 @@ def display_position_info(prediction, confidence):
             </div>
         """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------
-# توابع پیش‌بینی
-# -----------------------------------------------------------
+# Prediction functions
+
+def refine_fourth_fifth(prediction, features, probas):
+    """Better distinction between fourth and fifth positions (minimal fix)"""
+    if prediction not in [3, 4]:
+        return prediction
+
+    back_heel_to_front_bigtoe = features.get('back_heel_to_front_bigtoe', 0)
+    back_heel_to_front_smalltoe = features.get('back_heel_to_front_smalltoe', 0)
+    cross_factor = features.get('cross_factor', 0)
+    avg_heel_toe_dist = (back_heel_to_front_bigtoe + back_heel_to_front_smalltoe) / 2
+
+ 
+    FOURTH_MIN_DEPTH = 0.20   # values below this are definitely NOT fourth
+    FIFTH_MAX_DEPTH = 0.30    # values above this are unlikely to be fifth
+
+    # allow small floating error for cross_factor test
+    if abs(abs(cross_factor) - 1.0) > 0.05:
+  
+        return prediction
+
+    # If model predicted 4 (fifth) but avg is above the minimum expected for fourth,
+    # only override if the fourth-class probability is meaningfully higher.
+    if prediction == 4:
+        if avg_heel_toe_dist > FOURTH_MIN_DEPTH and probas[3] > probas[4] + 0.10:
+            print(f"✓ Override: Fifth→Fourth (depth={avg_heel_toe_dist:.3f}, p3={probas[3]:.2f}, p4={probas[4]:.2f})")
+            return 3
+
+    # If model predicted 3 (fourth) but avg is small (in fifth range),
+    # only override if the fifth-class probability is meaningfully higher.
+    if prediction == 3:
+        if avg_heel_toe_dist < FIFTH_MAX_DEPTH and probas[4] > probas[3] + 0.10:
+            print(f"✓ Override: Fourth→Fifth (depth={avg_heel_toe_dist:.3f}, p4={probas[4]:.2f}, p3={probas[3]:.2f})")
+            return 4
+
+    return prediction
+
+
 def predict_pose(json_files):
     features = extract_features_from_video(json_files)
     if features is None:
@@ -143,36 +171,9 @@ def predict_pose(json_files):
     confidence = max(probas) * 100
     return pred, confidence
 
-def refine_fourth_fifth(prediction, features, probas):
-    """تفکیک بهتر بین پوزیشن چهارم و پنجم"""
-    if prediction not in [3, 4]:
-        return prediction
-    
-    back_heel_to_front_bigtoe = features.get('back_heel_to_front_bigtoe', 0)
-    back_heel_to_front_smalltoe = features.get('back_heel_to_front_smalltoe', 0)
-    cross_factor = features.get('cross_factor', 0)
-    avg_heel_toe_dist = (back_heel_to_front_bigtoe + back_heel_to_front_smalltoe) / 2
-    
-    FOURTH_MIN_DEPTH = 0.10
-    FIFTH_MAX_DEPTH = 0.20
-    
-    if abs(cross_factor) != 1:
-        return prediction
-    
-    if avg_heel_toe_dist > FOURTH_MIN_DEPTH and prediction == 4:
-        if probas[3] > 0.05:
-            print(f"✓ Override: Fifth→Fourth (depth={avg_heel_toe_dist:.3f})")
-            return 3
-    elif avg_heel_toe_dist < FIFTH_MAX_DEPTH and prediction == 3:
-        if probas[4] > 0.05:
-            print(f"✓ Override: Fourth→Fifth (depth={avg_heel_toe_dist:.3f})")
-            return 4
-    
-    return prediction
 
-# -----------------------------------------------------------
-# اجرای OpenPose
-# -----------------------------------------------------------
+# Run OpenPose
+
 def run_openpose(input_path, output_dir):
     import shlex
     openpose_bin = r'C:\Users\noora\Downloads\openpose-1.7.0-binaries-win64-gpu-python3.7-flir-3d_recommended\openpose\bin\OpenPoseDemo.exe'
@@ -230,9 +231,9 @@ def run_openpose(input_path, output_dir):
     json_files.sort()
     return json_files
 
-# -----------------------------------------------------------
-# تنظیمات MediaPipe
-# -----------------------------------------------------------
+
+# MediaPipe setup
+
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 
@@ -255,27 +256,45 @@ def compute_angle_mediapipe(p1, p2, p3):
     return np.degrees(angle)
 
 def extract_features_from_mediapipe(img):
-    with mp_pose.Pose(min_detection_confidence=0.3, min_tracking_confidence=0.3) as pose:
+    """
+    Extract features from image using MediaPipe
+    Returns: features dict or None if insufficient detection
+    """
+    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
         results = pose.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        
+        # If no keypoints detected
         if not results.pose_landmarks:
+            print("⚠️ هیچ نقطه کلیدی شناسایی نشد")
             return None
         
         landmarks = results.pose_landmarks.landmark
         points = {}
         
+        # Minimum visibility to accept a point
+        MIN_VISIBILITY = 0.5
+        
         for name, idx in MP_INDICES.items():
             lm = landmarks[idx]
-            if lm.visibility > 0.2:
+            if lm.visibility > MIN_VISIBILITY:
                 points[name] = (lm.x * img.shape[1], lm.y * img.shape[0], lm.visibility)
             else:
                 points[name] = None
         
+        # Check required points for legs
         required_points = ['LKnee', 'LAnkle', 'RKnee', 'RAnkle', 'LHip', 'RHip']
-        if any(points[name] is None for name in required_points):
+        missing_points = [name for name in required_points if points[name] is None]
+        
+        if missing_points:
+            print(f"⚠️ نقاط ضروری مشخص نیستند: {missing_points}")
             return None
         
-        foot_points = [points[name] for name in ['LBigToe', 'LSmallToe', 'LHeel', 'RBigToe', 'RSmallToe', 'RHeel'] if points[name]]
-        if len(foot_points) < 3:
+        # Check foot points - at least 4 out of 6 points must be visible
+        foot_point_names = ['LBigToe', 'LSmallToe', 'LHeel', 'RBigToe', 'RSmallToe', 'RHeel']
+        foot_points = [points[name] for name in foot_point_names if points[name]]
+        
+        if len(foot_points) < 4:
+            print(f"⚠️ نقاط پاها کافی نیست: {len(foot_points)}/6")
             return None
         
         lankle, rankle = points['LAnkle'], points['RAnkle']
@@ -285,7 +304,9 @@ def extract_features_from_mediapipe(img):
         right_leg_len = math.dist(rknee[:2], rankle[:2])
         avg_leg_len = (left_leg_len + right_leg_len) / 2
 
-        if avg_leg_len < 1:
+        # If leg length is very small, person is likely far away or not detectable
+        if avg_leg_len < 10:
+            print(f"⚠️ طول پا خیلی کم است: {avg_leg_len:.2f}")
             return None
 
         if lankle[0] > rankle[0]:
@@ -314,8 +335,8 @@ def extract_features_from_mediapipe(img):
             'foot_y_std': np.std([p[1] for p in foot_points]) if foot_points else 0,
             'left_straightness': abs(lknee[0] - lankle[0]),
             'right_straightness': abs(rknee[0] - rankle[0]),
-            'left_turnout_angle': compute_angle_mediapipe(points['LHip'], lankle, points['LBigToe']),
-            'right_turnout_angle': compute_angle_mediapipe(points['RHip'], rankle, points['RBigToe']),
+            'left_turnout_angle': compute_angle_mediapipe(points['LHip'], lankle, points['LBigToe']) if points['LBigToe'] else 0,
+            'right_turnout_angle': compute_angle_mediapipe(points['RHip'], rankle, points['RBigToe']) if points['RBigToe'] else 0,
             'cross_factor': cross_factor,
             'left_leg_len': left_leg_len,
             'right_leg_len': right_leg_len,
@@ -327,12 +348,19 @@ def extract_features_from_mediapipe(img):
             'back_heel_to_front_bigtoe': back_heel_to_front_bigtoe,
             'back_heel_to_front_smalltoe': back_heel_to_front_smalltoe,
         }
+        
+        print(f"✓ ویژگی‌ها با موفقیت استخراج شدند")
         return features
 
 def predict_from_mediapipe(img):
+    """
+    Predict position from image
+    Returns: (prediction, confidence) or (None, None) if no detection
+    """
     features = extract_features_from_mediapipe(img)
     if features is None:
         return None, None
+    
     try:
         df = pd.DataFrame([features])
         scaled = scaler.transform(df)
@@ -340,14 +368,21 @@ def predict_from_mediapipe(img):
         probas = clf.predict_proba(scaled)[0]
         pred = refine_fourth_fifth(pred, features, probas)
         confidence = max(probas) * 100
+        
+        # If confidence is very low, reject the result
+        if confidence < 40:
+            print(f"⚠️ اطمینان خیلی پایین است: {confidence:.1f}%")
+            return None, None
+            
+        print(f"✓ پیش‌بینی: {pred} با اطمینان {confidence:.1f}%")
         return pred, confidence
     except Exception as e:
-        print(f"Prediction error: {e}")
+        print(f"❌ خطا در پیش‌بینی: {e}")
         return None, None
 
-# -----------------------------------------------------------
-# رابط کاربری
-# -----------------------------------------------------------
+
+# User interface
+
 st.markdown("<h1 style='direction: rtl; text-align: right;'>سیستم تشخیص پوزیشن</h1>", unsafe_allow_html=True)
 
 st.markdown("""
@@ -368,50 +403,107 @@ input_mode = st.radio(
 )
 st.markdown("</div>", unsafe_allow_html=True)
 
-# -----------------------------------------------------------
-# حالت دوربین
-# -----------------------------------------------------------
+
+# Camera mode
+
 if input_mode == 'دوربین زنده':
     st.markdown("<h2 style='direction: rtl; text-align: right;'>ورودی دوربین زنده</h2>", unsafe_allow_html=True)
     st.markdown("""
         <div style="direction: rtl; text-align: right; background-color: #fff3cd; padding: 1rem; border-radius: 0.5rem; margin: 1rem 0; border-right: 4px solid #ffc107;">
             <p style="margin-bottom: 0.5rem;">⚠️ حالت دوربین از MediaPipe استفاده می‌کند. برای دقت بیشتر، از حالت بارگذاری ویدیو استفاده کنید.</p>
-            <p style="margin: 0;">اجازه دسترسی به دوربین را بدهید و هر پوزیشن را حداقل ۳ ثانیه نگه دارید.</p>
+            <p style="margin: 0;">اجازه دسترسی به دوربین را بدهید و هر پوزیشن را حداقل ۳ ثانیه نگه دارید. مطمئن شوید که کل بدن در کادر قرار دارد.</p>
         </div>
     """, unsafe_allow_html=True)
 
     class VideoProcessor(VideoProcessorBase):
         def __init__(self):
             self.last_prediction_time = 0
+            self.last_valid_check_time = 0
             self.prediction = None
             self.confidence = None
+            self.stable_frames = 0  # Counter for stable frames
+            self.required_stable_frames = 3  # Number of frames required for confirmation
+            self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+        def check_keypoints_visible(self, img):
+            """Quick check if keypoints are still visible"""
+            try:
+                results = self.pose.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                if not results.pose_landmarks:
+                    return False
+                
+                landmarks = results.pose_landmarks.landmark
+                MIN_VISIBILITY = 0.5
+                
+                # Check required points
+                required_indices = [23, 24, 25, 26, 27, 28]  # Hips, Knees, Ankles
+                for idx in required_indices:
+                    if landmarks[idx].visibility < MIN_VISIBILITY:
+                        return False
+                
+                # Check foot points
+                foot_indices = [29, 30, 31, 32]  # Heels and Toes
+                visible_foot_points = sum(1 for idx in foot_indices if landmarks[idx].visibility > MIN_VISIBILITY)
+                if visible_foot_points < 3:
+                    return False
+                
+                return True
+            except Exception as e:
+                print(f"Visibility check error: {e}")
+                return False
 
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
             img = frame.to_ndarray(format="bgr24")
             current_time = time.time()
             
-            if current_time - self.last_prediction_time >= 3.0:
+            # Quick check every 0.5 seconds: are keypoints still visible?
+            if current_time - self.last_valid_check_time >= 0.5:
+                self.last_valid_check_time = current_time
+                if not self.check_keypoints_visible(img):
+                    # Reset if keypoints are not visible
+                    print("⚠️ نقاط کلیدی دیگر مشخص نیست - ریست")
+                    self.stable_frames = 0
+                    self.prediction = None
+                    self.confidence = None
+            
+            # Attempt new prediction every 2 seconds
+            if current_time - self.last_prediction_time >= 2.0:
                 self.last_prediction_time = current_time
                 pred, conf = predict_from_mediapipe(img)
+                
                 if pred is not None:
-                    self.prediction = pred
-                    self.confidence = conf
+                    # If prediction is valid, increment counter
+                    self.stable_frames += 1
+                    if self.stable_frames >= self.required_stable_frames:
+                        self.prediction = pred
+                        self.confidence = conf
+                        print(f"✓ پیش‌بینی جدید: {pred} ({conf:.1f}%)")
+                else:
+                    # If prediction is invalid, reset
+                    self.stable_frames = 0
+                    self.prediction = None
+                    self.confidence = None
             
+            # Draw skeleton on image
             try:
-                with mp_pose.Pose(min_detection_confidence=0.3, min_tracking_confidence=0.3) as pose:
-                    results = pose.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                    if results.pose_landmarks:
-                        mp_drawing.draw_landmarks(
-                            img, 
-                            results.pose_landmarks, 
-                            mp_pose.POSE_CONNECTIONS,
-                            mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
-                            mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
-                        )
+                results = self.pose.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                if results.pose_landmarks:
+                    mp_drawing.draw_landmarks(
+                        img, 
+                        results.pose_landmarks, 
+                        mp_pose.POSE_CONNECTIONS,
+                        mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+                        mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
+                    )
             except Exception as e:
                 print(f"Drawing error: {e}")
             
             return av.VideoFrame.from_ndarray(img, format="bgr24")
+        
+        def __del__(self):
+            """Clean up MediaPipe pose when done"""
+            if hasattr(self, 'pose'):
+                self.pose.close()
 
     col1, col2 = st.columns([2, 1])
     
@@ -440,18 +532,20 @@ if input_mode == 'دوربین زنده':
                     with result_placeholder.container():
                         st.markdown("""
                             <div style="direction: rtl; text-align: right;">
-                                <div style="background-color: #d1ecf1; padding: 1.5rem; border-radius: 0.5rem; border-right: 4px solid #17a2b8;">
-                                    <p style="font-size: 1.2rem; margin-bottom: 0.5rem; font-weight: bold;">⏳ در انتظار تشخیص حرکت...</p>
-                                    <p style="margin: 0;">لطفاً کل بدن خود را در کادر قرار دهید</p>
+                                <div style="background-color: #fff3cd; padding: 1.5rem; border-radius: 0.5rem; border-right: 4px solid #ffc107;">
+                                    <p style="font-size: 1.2rem; margin-bottom: 0.5rem; font-weight: bold;">⏳ در انتظار تشخیص...</p>
+                                    <p style="margin: 0;">✓ مطمئن شوید کل بدن در کادر است</p>
+                                    <p style="margin: 0;">✓ پاها و پنجه‌های پا کاملاً مشخص باشند</p>
+                                    <p style="margin: 0;">✓ نور محیط کافی باشد</p>
+                                    <p style="margin: 0;">✓ حداقل ۳ ثانیه ثابت بمانید</p>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
                 
                 time.sleep(0.5)
 
-# -----------------------------------------------------------
-# حالت بارگذاری ویدیو
-# -----------------------------------------------------------
+# Video upload mode
+
 elif input_mode == 'بارگذاری ویدیو':
     st.markdown("<h2 style='direction: rtl; text-align: right;'>بارگذاری ویدیو</h2>", unsafe_allow_html=True)
     st.markdown("""
@@ -479,7 +573,7 @@ elif input_mode == 'بارگذاری ویدیو':
             if pred is not None:
                 display_position_info(pred, confidence)
                 
-                # نمایش ویدیو کوچکتر
+                # Display smaller video
                 st.markdown("<p style='direction: rtl; text-align: right; font-weight: bold; margin-top: 2rem;'>ویدیو بارگذاری شده:</p>", unsafe_allow_html=True)
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
@@ -487,7 +581,11 @@ elif input_mode == 'بارگذاری ویدیو':
             else:
                 st.markdown("""
                     <div style='direction: rtl; text-align: right; background-color: #f8d7da; padding: 1rem; border-radius: 0.5rem; border-right: 4px solid #dc3545;'>
-                        <p style='margin: 0; color: #721c24;'>❌ حرکتی تشخیص داده نشد. لطفاً ویدیو دیگری امتحان کنید.</p>
+                        <p style='margin: 0; color: #721c24;'>❌ نقاط کلیدی بدن به اندازه کافی شناسایی نشد.</p>
+                        <p style='margin: 0; color: #721c24;'>لطفاً مطمئن شوید که:</p>
+                        <p style='margin: 0; color: #721c24;'>• کل بدن (به‌ویژه پاها) در کادر است</p>
+                        <p style='margin: 0; color: #721c24;'>• نور محیط کافی است</p>
+                        <p style='margin: 0; color: #721c24;'>• کیفیت ویدیو خوب است</p>
                     </div>
                 """, unsafe_allow_html=True)
         else:

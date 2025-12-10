@@ -3,7 +3,7 @@ import math
 import numpy as np
 import os
 
-json_dir = r'./training_data_json2'  # Adjust
+json_dir = r'./training_data_json2'  
 BODY_25_FOOT_INDICES = range(19, 25)  # Foot points: big/small toes, heels L/R
 
 def get_point(kps, idx, min_conf=0.3):

@@ -5,8 +5,8 @@ from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, classification_report
 import joblib
 
-# Load the preprocessed training features CSV (generated from your updated preprocessing script)
-train_csv = 'ballet_features1_combined.csv'  # Update to your actual training CSV path, e.g., 'train_ballet_features2.csv'
+# preprocessed training features CSV 
+train_csv = 'ballet_features1_combined.csv'  
 
 df = pd.read_csv(train_csv)
 
@@ -14,15 +14,15 @@ df = pd.read_csv(train_csv)
 features = df.drop(['label', 'video_id'], axis=1)  # Drop label and any non-feature columns
 labels = df['label']
 
-# Split into train and validation sets (optional; you can use all for training if no val needed)
+# Split into train and validation sets 
 X_train, X_val, y_train, y_val = train_test_split(features, labels, test_size=0.2, random_state=42)
 
 # Scale features
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 
-# Train SVM model (you can tweak hyperparameters like kernel, C, etc.)
-clf = SVC(kernel='rbf', C=1.0, random_state=42)  # Example: RBF kernel for non-linear separation
+# Train SVM model 
+clf = SVC(kernel='rbf', C=1.0, random_state=42)  
 clf.fit(X_train_scaled, y_train)
 
 # Optional: Validate

@@ -6,9 +6,9 @@ import pandas as pd
 from glob import glob
 from collections import defaultdict
 
-# Adjust paths
-data_root = r'./'  # Folders like first/, second/ (if used; optional)
-jsons_root = r'./training_data_json2'  # Folders like first/, second/
+
+data_root = r'./' 
+jsons_root = r'./training_data_json2'  
 output_csv = 'ballet_features2_2.csv'
 
 BODY_25_INDICES = {

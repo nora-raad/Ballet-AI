@@ -10,13 +10,13 @@ import json
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Load saved model and scaler (assuming retrained on new features)
+# Load saved model and scaler
 clf = joblib.load('ballet_rf_model2.pkl')
 scaler = joblib.load('ballet_rf_scaler2.pkl')
 
-# Adjust paths for test data (assume similar structure to training, e.g., test/first/, test/second/ with JSONs)
-test_jsons_root = r'./test_data_output'  # Change to your test JSONs folder
-output_test_csv = 'test_ballet_features_rf2.csv'  # Optional: Save extracted test features
+
+test_jsons_root = r'./test_data_output'  
+output_test_csv = 'test_ballet_features_rf2.csv'  
 
 BODY_25_INDICES = {
     'LHip': 12, 'RHip': 9,
@@ -160,7 +160,7 @@ for pos_name, true_label in position_labels.items():
 test_df = pd.DataFrame(data)
 test_df.to_csv(output_test_csv, index=False)  # Optional save
 
-# Prepare for prediction (drop non-features)
+# Prepare for prediction 
 test_features = test_df.drop(['true_label', 'video_id'], axis=1)
 true_labels = test_df['true_label']
 
@@ -185,7 +185,7 @@ plt.ylabel('True')
 plt.title('Confusion Matrix')
 plt.show()
 
-# Your scatterplot (updated to use new features if desired; here using ankle_x_dist for better relevance to changes)
+# Your scatterplot 
 test_df['error'] = test_df['true_label'] != test_df['predicted_label']  # Flag errors
 sns.scatterplot(data=test_df, x='ankle_x_dist', y='foot_spread', hue='true_label', style='error')
 plt.title('Feature Scatter: True Labels with Errors Marked (Using New ankle_x_dist)')

@@ -5,11 +5,11 @@ import os
 import pandas as pd
 from glob import glob
 from collections import defaultdict
-import mediapipe as mp  # For MediaPipe integration
+import mediapipe as mp  
 
-# Adjust paths
-data_root = r'./'  # Folders like first/, second/ (if used; optional)
-jsons_root = r'./training_data_json'  # Folders like first/, second/
+
+data_root = r'./' 
+jsons_root = r'./training_data_json'  
 output_csv = 'ballet_features2_combined.csv'
 
 BODY_25_INDICES = {

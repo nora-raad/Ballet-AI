@@ -7,8 +7,8 @@ import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Load the preprocessed training features CSV (generated from your updated preprocessing script)
-train_csv = 'ballet_features1_combined.csv'  # Update to your actual training CSV path, e.g., 'train_ballet_features2.csv'
+#preprocessed training features CSV 
+train_csv = 'ballet_features1_combined.csv'  
 
 df = pd.read_csv(train_csv)
 
@@ -16,7 +16,7 @@ df = pd.read_csv(train_csv)
 features = df.drop(['label', 'video_id'], axis=1)  # Drop label and any non-feature columns
 labels = df['label']
 
-# Optional: Handle any NaNs (e.g., fill with 0 or mean)
+
 features = features.fillna(0)
 
 # Split into train and validation sets
